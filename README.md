@@ -24,6 +24,42 @@ Reading through the paper, these strategies seem to take one of two forms:
 
 I have elected to ignore the problem completely and simply have the ability to emit multiple events per timestep - the reason being that I came to this idea via [this talk](https://www.youtube.com/watch?time_continue=9&v=cXuvCMG21Ss&feature=emb_logo) which was largely pitching B-Threads as a mechanism for append-only software changes. In light of this, I want the stuff I add to make as little difference as possible to the stuff that's already there `(unless of coure I WANT it to make a difference)`. It seemed that the easiest way to do that was to eliminate the interactions between unrelated events that happen to occur at the same time by just letting them occur at the same time.
 
+## Interaction
+I need to add an input/output mechansim for interacting with the B-Thread system. I think that's going to take the form of some very basic traits that allow me to choose whether the system operates in lock-step with the I/O or not. For example:
+
+```scala
+trait Input[F[_]] {
+  def pull(): F[Seq[Request]]
+}
+
+trait Output[F[_]] {
+  def push(events: Seq[Event]): F[Unit]
+}
+```
+
+In the simplest version, these are just queues that are being worked through as fast as they can be by separate processes.
+
+In a slightly more involved version, the output and the input could be conjoined such that the `push()` effect doesn't complete until any requests that serve as the response to the B-Thread system's output are ready to be pulled.
+
+Between those two versions, we can get async, less determinisitc (timing-wise) communication, which will be good for some systems, and a synchronous, time-locked version that could be good for others.
+
+## Spinning Your Wheels
+
+Right now there's a really cheap mechanism for avoiding endless loops - just stop processing after some pre-set number of frames. Can we do better?
+
+### No Events Produced
+
+In the case there are no events generated, the system is in a state that will always repeat unless outside requests are added to the system. In this case, we could simply pause execution and wait for such a request to perturb the system instead of the more `computer go brrrrrrr` situation we have now. That way we could leave the system running without having to have a cutoff.
+
+## Refactoring
+
+I keep having this thought that refactoring a system like this should be deceptively easy. Thinking about examples has led me to some intuitions:
+1. Combining two threads feels really easy.
+2. Pulling threads apart feels harder.
+3. Clustering on common keys will be involved.
+
+I really wanna work out a visual editing system for these, because it feels like a thing that will become immediately obvious once I can see it. For now, I'll keep using the whiteboard.
+
 ## Run application
 
 ```bash

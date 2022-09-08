@@ -4,10 +4,10 @@ import dev.kaden.entities.Domain.*
 
 object BThread {
   trait BThread {
-    import BehaviorComponent.*
+    import BehaviorElement.*
 
     def name: BehaviorName
-    def now: BehaviorComponent
+    def now: BehaviorElement
     def next: Option[BThread]
     def react(msg: String): Option[BThread] = now match {
       case Request(`msg`)       => next
@@ -17,30 +17,30 @@ object BThread {
     }
   }
 
-  case class SequenceThread(name: BehaviorName, index: Int, components: List[BehaviorComponent])
+  case class SequenceThread(name: BehaviorName, index: Int, components: List[BehaviorElement])
       extends BThread {
-    import BehaviorComponent.*
-    def now: BehaviorComponent = components(index)
+    import BehaviorElement.*
+    def now: BehaviorElement = components(index)
     def next: Option[BThread] =
       if index == components.size - 1 then None
       else Some(SequenceThread(name, index + 1, components))
   }
   object SequenceThread {
-    def apply(name: BehaviorName, components: BehaviorComponent*): SequenceThread = {
+    def apply(name: BehaviorName, components: BehaviorElement*): SequenceThread = {
       SequenceThread(name, 0, components.toList)
     }
   }
 
-  case class CircularThread(name: BehaviorName, index: Int, components: List[BehaviorComponent])
+  case class CircularThread(name: BehaviorName, index: Int, components: List[BehaviorElement])
       extends BThread {
-    import BehaviorComponent.*
-    def now: BehaviorComponent = components(index)
+    import BehaviorElement.*
+    def now: BehaviorElement = components(index)
     def next: Option[BThread] = Some(
       CircularThread(name, (index + 1) % components.size, components)
     )
   }
   object CircularThread {
-    def apply(name: BehaviorName, components: BehaviorComponent*): CircularThread = {
+    def apply(name: BehaviorName, components: BehaviorElement*): CircularThread = {
       CircularThread(name, 0, components.toList)
     }
   }

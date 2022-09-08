@@ -13,31 +13,61 @@ import dev.kaden.util.HLF.*
 
 object Behavior {
 
-  case class Program(bthreads: BThread*) {
+  val logger: SelfAwareStructuredLogger[IO] = LoggerFactory[IO].getLogger
+
+  case class Program(
+      bthreads: BThread*
+  ) {
     import RunState.*
     def run(counter: Int): IO[Unit] = {
-      val init = RunningProgram(bthreads, 0)
+      val init = RunningProgram(bthreads, Frame())
       unfoldIO(init)(rpg => rpg.step()) {
-        case Halt(n)                                         => Left(printHaltAt(n))
-        case Go(RunningProgram(_, frame)) if frame > counter => Left(printHaltAt(frame))
-        case Go(rpg)                                         => Right(rpg)
+        case Halt(n)                                               => Left(printHaltAt(n))
+        case Go(RunningProgram(_, frame)) if frame.major > counter => Left(printHaltAt(frame))
+        case Go(rpg)                                               => Right(rpg)
       }
     }
 
-    private def printHaltAt(n: Int): IO[Unit] = IO.println(s"Halted at frame: $n")
+    private def printHaltAt(n: Frame): IO[Unit] = IO.println(s"Halted at frame: $n")
   }
 
   enum RunState:
-    case Halt(n: Int)
+    case Halt(frame: Frame)
     case Go(prg: RunningProgram)
 
-  case class RunningProgram(threads: Seq[BThread], frame: Int) {
+  def advance(rpg: RunningProgram): RunState = {
+    import RunState.*
+    if (rpg.threads.isEmpty) {
+      Halt(rpg.frame)
+    } else {
+      Go(RunningProgram(rpg.threads, rpg.frame.incMajor()))
+    }
+  }
+
+  case class Frame(major: Int, minor: Int) {
+    def incMajor(): Frame           = Frame(major + 1, 0)
+    def incMinor(): Frame           = Frame(major, minor + 1)
+    override def toString(): String = s"$major.$minor"
+  }
+  object Frame {
+    def apply(): Frame = Frame(0, 0)
+  }
+
+  case class RunningProgram(threads: Seq[BThread], frame: Frame) {
     def step(): IO[RunState] = {
       val decision = Decision.reduce(threads.map(_.now))
       for {
-        prog <- decision(this)
-      } yield prog
+        update <- decision.applyM(this)
+        prog <- update match {
+          case (events, prog) =>
+            for {
+              _ <- IO.println(s"${prog.frame}: [${events.map(_.msg).mkString(", ")}]")
+            } yield prog
+        }
+      } yield advance(prog)
     }
+
+    def update(req: String) = RunningProgram(threads.flatMap(_.react(req)), frame.incMinor())
 
     override def toString(): String = {
       val header  = s"\nFrame: $frame, Threads (${threads.size}):\n"
@@ -47,40 +77,29 @@ object Behavior {
   }
 
   case class Decision(requests: Seq[String]) {
-    import RunState.*
-    def apply(rpg: RunningProgram): IO[RunState] = {
-      if (requests.isEmpty) {
-        IO.pure(Halt(rpg.frame))
-      } else {
-        val starter: (Seq[Event], RunningProgram) = (Seq(), rpg)
-        val stuff = requests
-          .foldLeft(starter) {
-            case ((events, rpg), req) => {
-              updateProgram(rpg, req) match {
-                case (e, newProg) => (events :+ e, newProg)
-              }
-            }
-          }
-        stuff match {
-          case (events, RunningProgram(threads, frame)) =>
-            val retVal = if (threads.isEmpty) {
-              Halt(frame)
-            } else {
-              Go(RunningProgram(threads, frame + 1))
-            }
-            IO.println(s"$frame: $events") *> IO.pure(retVal)
-        }
-      }
+    def apply(rpg: RunningProgram): (Seq[Event], RunningProgram) = {
+      requests.foldLeft((Seq(), rpg))(mapAcc(updateProgram))
     }
 
-    private def updateProgram(prog: RunningProgram, req: String): (Event, RunningProgram) = {
-      (Event(req), RunningProgram(prog.threads.flatMap(_.react(req)), prog.frame))
+    private def updateProgram(req: String, prog: RunningProgram): (Event, RunningProgram) = {
+      (Event(req), prog.update(req))
+    }
+
+    def applyM(rpg: RunningProgram): IO[(Seq[Event], RunningProgram)] = {
+      val a: IO[(Seq[Event], RunningProgram)] = IO.pure((Seq(), rpg))
+      requests.foldLeft(a)(mapAccM(updateProgramM))
+    }
+
+    private def updateProgramM(req: String, prog: RunningProgram): IO[(Event, RunningProgram)] = {
+      val (event, nextProg) = updateProgram(req, prog)
+      logger.debug(s"Request: $event, Frame: ${nextProg.frame}") *>
+        IO.pure((event, nextProg))
     }
   }
 
   object Decision {
 
-    def reduce(components: Seq[BehaviorComponent]): Decision = {
+    def reduce(components: Seq[BehaviorElement]): Decision = {
       val starter = DecisionBuilder(Seq(), Set())
       val builder = components.foldLeft(starter)(incorporate)
       builder.build()
@@ -90,8 +109,8 @@ object Behavior {
       def build(): Decision = Decision(reqs)
     }
 
-    private def incorporate(builder: DecisionBuilder, comp: BehaviorComponent) = {
-      import BehaviorComponent.*
+    private def incorporate(builder: DecisionBuilder, comp: BehaviorElement) = {
+      import BehaviorElement.*
       comp match {
         case Request(msg) if !builder.blocking.contains(msg) => {
           DecisionBuilder(builder.reqs :+ msg, builder.blocking)

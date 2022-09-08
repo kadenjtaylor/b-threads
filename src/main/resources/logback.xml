@@ -10,7 +10,7 @@
       <pattern>[%thread] %highlight(%7([%level])) %12(\(%logger{0}\)) - %msg %n</pattern>
     </encoder>
   </appender>
-  <root level="DEBUG">
+  <root level="INFO">
     <appender-ref ref="STDOUT" />
   </root>
 </configuration>

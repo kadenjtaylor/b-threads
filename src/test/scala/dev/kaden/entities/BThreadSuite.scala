@@ -2,7 +2,7 @@ package dev.kaden.entities
 
 import cats.effect.IO
 import weaver._
-import dev.kaden.entities.Domain.BehaviorComponent.*
+import dev.kaden.entities.Domain.BehaviorElement.*
 import dev.kaden.entities.Behavior.Decision
 
 object BThreadSuite extends SimpleIOSuite {

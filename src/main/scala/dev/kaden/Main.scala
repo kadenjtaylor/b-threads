@@ -19,16 +19,18 @@ object Main extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] = {
 
-    import BehaviorComponent.*
+    import BehaviorElement.*
 
-    val waterLow = "water_low"
-    val addHot   = "add_hot_water"
-    val addCold  = "add_cold_water"
+    val waterLow  = "water_low"
+    val addHot    = "add_hot_water"
+    val addCold   = "add_cold_water"
+    val addMedium = "add_medium_water"
 
     val startWithWaterLow = SequenceThread("Low Water Alert", Request(waterLow))
     val addHotWhenLow = CircularThread(
       "Add Hot When Low",
       Await(waterLow),
+      Request(addHot),
       Request(addHot),
       Request(addHot),
       Request(addHot)
@@ -39,13 +41,35 @@ object Main extends IOApp {
         Await(waterLow),
         Request(addCold),
         Request(addCold),
+        Request(addCold),
         Request(addCold)
       )
-    val alternateHotCold =
-      CircularThread("Alternate Hot/Cold", BlockUntil(addHot, addCold), BlockUntil(addCold, addHot))
+    val addMediumWhenLow =
+      CircularThread(
+        "Add Medium Always",
+        Await(waterLow),
+        Request(addMedium),
+        Request(addMedium),
+        Request(addMedium),
+        Request(addMedium)
+      )
+    val alternateTemp =
+      CircularThread(
+        "Alternate Hot/Cold/Medium",
+        Await(addCold),
+        Await(addMedium),
+        Await(addHot)
+      )
 
     // Comment out "alternateHotCold" to see what happens
-    val prog = Program(startWithWaterLow, addColdWhenLow, addHotWhenLow, alternateHotCold)
+    val prog =
+      Program(
+        startWithWaterLow,
+        addColdWhenLow,
+        addHotWhenLow,
+        alternateTemp,
+        addMediumWhenLow
+      )
 
     prog.run(40) *> IO.pure(ExitCode.Success)
   }
